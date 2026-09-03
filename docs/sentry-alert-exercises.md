@@ -5,6 +5,9 @@ this bookstore stack. Each exercise names the alert rule to create, the command
 that generates the signal, and what you should see. Do them in order — later
 exercises assume the rules from earlier ones exist.
 
+SDK, release, and PR workflow exercises live in
+[sentry-sdk-exercises.md](./sentry-sdk-exercises.md).
+
 Why a load script: almost every alert condition evaluates over a time window
 (events per minute, p95 over 5 minutes). A single curl never fires anything.
 `scripts/chaos-load.sh` keeps the signal going long enough for rules to evaluate.
