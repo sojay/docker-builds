@@ -5,13 +5,13 @@ import { Link } from 'react-router-dom';
 function Home() {
   const [categories, setCategories] = useState([]);
   const [featuredBooks, setFeaturedBooks] = useState([]);
-  
+
   useEffect(() => {
     // Fetch categories
     fetch('/api/categories')
       .then(res => res.json())
       .then(data => setCategories(data));
-    
+
     // Fetch featured books
     fetch('/api/products/featured')
       .then(res => res.json())
@@ -22,12 +22,12 @@ function Home() {
     <div className="home">
       <div className="hero">
         <div className="hero-content">
-          <h1>Welcome to Prepare.sh Book Shop</h1>
+          <h1>Welcome to Sammie's Book Shop</h1>
           <p>Discover the world through Russian literature</p>
           <Link to="/category/classics" className="cta-button">Explore Classics</Link>
         </div>
       </div>
-      
+
       <section className="categories-section">
         <h2>Browse Categories</h2>
         <div className="categories-grid">
@@ -41,7 +41,7 @@ function Home() {
           ))}
         </div>
       </section>
-      
+
       <section className="featured-section">
         <h2>Featured Books</h2>
         <div className="featured-books">
@@ -59,7 +59,7 @@ function Home() {
           ))}
         </div>
       </section>
-      
+
       <section className="quote-section">
         <blockquote>
           "The soul is healed by being with children."

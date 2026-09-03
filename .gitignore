@@ -137,3 +137,10 @@ dist
 .pnp.*
 
 .vscode
+
+# local tooling junk
+.codex
+.nvimlog
+.omx/
+__pycache__/
+.venv*/

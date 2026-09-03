@@ -7,6 +7,7 @@ import Home from './pages/Home';
 import ProductList from './pages/ProductList';
 import ProductDetail from './pages/ProductDetail';
 import Cart from './pages/Cart';
+import DebugSentry from './pages/DebugSentry';
 import './App.css';
 
 function App() {
@@ -20,6 +21,7 @@ function App() {
             <Route path="/category/:categoryId" element={<ProductList />} />
             <Route path="/product/:productId" element={<ProductDetail />} />
             <Route path="/cart" element={<Cart />} />
+            <Route path="/debug-sentry" element={<DebugSentry />} />
           </Routes>
         </main>
         <Footer />

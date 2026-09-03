@@ -6,12 +6,12 @@ function Footer() {
     <footer className="footer">
       <div className="footer-content">
         <div className="footer-section">
-          <h3>Prepare.sh Book Shop</h3>
+          <h3>Sammie's Book Shop</h3>
           <p>Your premier destination for Classic literature and beyond.</p>
         </div>
         <div className="footer-section">
           <h3>Contact</h3>
-          <p>Email: info@prepare.sh</p>
+          <p>Email: info@samboxlabs.top</p>
           <p>Phone: +1 123-456-7890</p>
         </div>
         <div className="footer-section">
@@ -21,7 +21,7 @@ function Footer() {
         </div>
       </div>
       <div className="footer-bottom">
-        <p>&copy; {new Date().getFullYear()} Prepare.sh Book Shop. All rights reserved.</p>
+        <p>&copy; {new Date().getFullYear()} Sammie's Book Shop. All rights reserved.</p>
       </div>
     </footer>
   );

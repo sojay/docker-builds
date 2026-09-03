@@ -19,7 +19,7 @@ function Hero() {
   return (
     <div className="hero" style={heroStyle}>
       <div className="hero-content">
-        <h1>Welcome to Prepare.sh Book Shop</h1>
+        <h1>Welcome to Sammie's Book Shop</h1>
         <p>Discover the world through Russian literature</p>
         <Link to="/category/classics" className="cta-button">Explore Classics</Link>
       </div>

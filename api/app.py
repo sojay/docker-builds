@@ -1,10 +1,53 @@
 # app.py
 from flask import Flask, jsonify, request
+import asyncio
 import os
+import threading
+import time
 from flask_cors import CORS
 
+import psycopg
+import sentry_sdk
+from sentry_sdk.integrations.flask import FlaskIntegration
+
+sentry_sdk.init(
+    dsn=os.getenv("SENTRY_DSN"),
+    integrations=[FlaskIntegration()],
+    environment=os.getenv("SENTRY_ENVIRONMENT", "development"),
+    release=os.getenv("SENTRY_RELEASE"),
+    traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "1.0")),
+    send_default_pii=os.getenv("SENTRY_SEND_DEFAULT_PII", "false").lower() == "true",
+    # Add data like request headers and IP for users,
+    # see https://docs.sentry.io/platforms/python/data-management/data-collected/ for more info
+)
+
 app = Flask(__name__)
-CORS(app)
+
+cors_origins = os.getenv("CORS_ORIGINS", "*")
+if cors_origins == "*":
+    CORS(app)
+else:
+    CORS(app, origins=[origin.strip() for origin in cors_origins.split(",")])
+
+
+def chaos_enabled():
+    return os.getenv("ENABLE_CHAOS_ROUTES", "false").lower() == "true"
+
+
+def chaos_disabled_response():
+    return jsonify({"error": "Chaos routes are disabled"}), 404
+
+
+@app.before_request
+def enrich_sentry_scope():
+    sentry_sdk.set_tag("service", "bookstore-api")
+    sentry_sdk.set_context(
+        "bookstore_request",
+        {
+            "method": request.method,
+            "path": request.path,
+        },
+    )
 
 # Mock data for development - Updated book categories
 mock_categories = [
@@ -218,6 +261,11 @@ def get_product(product_id):
     product = next((p for p in mock_products if p['id'] == product_id), None)
     if product:
         return jsonify(product)
+    if os.getenv("SENTRY_CAPTURE_404S", "false").lower() == "true":
+        sentry_sdk.capture_message(
+            f"Product not found: {product_id}",
+            level="warning",
+        )
     return jsonify({"error": "Product not found"}), 404
 
 @app.route('/api/cart', methods=['GET'])
@@ -275,6 +323,173 @@ def checkout():
     # In a real app, we would process payment, create order, etc.
     mock_cart = []
     return jsonify({"success": True})
+
+@app.route('/api/debug-sentry', methods=['GET'])
+def debug_sentry():
+    division_by_zero = 1 / 0
+    return jsonify({"result": division_by_zero})
+
+@app.route('/api/chaos/slow', methods=['GET'])
+def chaos_slow():
+    if not chaos_enabled():
+        return chaos_disabled_response()
+
+    seconds = float(request.args.get("seconds", "3"))
+    time.sleep(seconds)
+    return jsonify({"slept": seconds})
+
+@app.route('/api/chaos/postgres', methods=['GET'])
+def chaos_postgres():
+    if not chaos_enabled():
+        return chaos_disabled_response()
+
+    database_url = os.getenv(
+        "DATABASE_URL",
+        "postgresql://bookstore:bookstore@127.0.0.1:5432/bookstore",
+    )
+    with psycopg.connect(database_url, connect_timeout=1) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute("select 1")
+            result = cursor.fetchone()
+
+    return jsonify({"database": "ok", "result": result[0]})
+
+@app.route('/api/chaos/product/<product_id>', methods=['GET'])
+def chaos_missing_product(product_id):
+    if not chaos_enabled():
+        return chaos_disabled_response()
+
+    product = next((p for p in mock_products if p['id'] == product_id), None)
+    if product:
+        return jsonify(product)
+
+    sentry_sdk.capture_message(
+        f"Chaos product lookup missed: {product_id}",
+        level="warning",
+    )
+    return jsonify({"error": "Product not found", "productId": product_id}), 404
+
+# ---------------------------------------------------------------------------
+# Chaos routes below exist to generate specific Sentry event shapes on demand.
+# All gated behind ENABLE_CHAOS_ROUTES=true. Never enable in a real deployment.
+# ---------------------------------------------------------------------------
+
+# ponytail: module-global list, freed only by restarting the process.
+# That is the point - it is the leak.
+_leaked = []
+
+
+@app.route('/api/chaos/recursion', methods=['GET'])
+def chaos_recursion():
+    """RecursionError -> very deep, truncated stack trace in Sentry."""
+    if not chaos_enabled():
+        return chaos_disabled_response()
+
+    def descend(n):
+        return descend(n + 1)
+
+    descend(0)
+
+
+@app.route('/api/chaos/thread', methods=['GET'])
+def chaos_thread():
+    """Exception in a background thread. The HTTP response is a normal 200.
+
+    Sentry's ThreadingIntegration (on by default) reports it, so the event has
+    no request context and no matching error status on the transaction.
+    """
+    if not chaos_enabled():
+        return chaos_disabled_response()
+
+    def explode():
+        raise RuntimeError("Chaos: background thread failed after response was sent")
+
+    thread = threading.Thread(target=explode, name="chaos-worker", daemon=True)
+    thread.start()
+    return jsonify({"started": thread.name, "note": "check Sentry, not this response"})
+
+
+@app.route('/api/chaos/unhandled-async', methods=['GET'])
+def chaos_unhandled_async():
+    """asyncio task whose exception is never retrieved.
+
+    Without AsyncioIntegration this surfaces only as a stderr warning
+    ("Task exception was never retrieved") and NO Sentry event - which is
+    exactly the "my async errors are missing" report.
+    """
+    if not chaos_enabled():
+        return chaos_disabled_response()
+
+    async def orphan():
+        await asyncio.sleep(0)
+        raise ValueError("Chaos: orphaned asyncio task")
+
+    async def main():
+        asyncio.ensure_future(orphan())
+        await asyncio.sleep(0.05)  # let it fail, never await it
+
+    asyncio.run(main())
+    return jsonify({"spawned": True, "note": "exception intentionally not retrieved"})
+
+
+@app.route('/api/chaos/memory', methods=['GET'])
+def chaos_memory():
+    """Leak ~mb megabytes per call. Repeat until the container OOMs."""
+    if not chaos_enabled():
+        return chaos_disabled_response()
+
+    mb = int(request.args.get("mb", "50"))
+    _leaked.append(bytearray(mb * 1024 * 1024))
+    return jsonify({"leaked_mb": mb, "total_mb": sum(len(b) for b in _leaked) // (1024 * 1024)})
+
+
+@app.route('/api/chaos/nplusone', methods=['GET'])
+def chaos_nplusone():
+    """One list query followed by N single-row queries.
+
+    sentry-sdk does not auto-instrument psycopg3, so the db spans below are
+    created by hand. Removing them is a useful exercise: the slow endpoint
+    stays slow but the trace stops explaining why.
+    """
+    if not chaos_enabled():
+        return chaos_disabled_response()
+
+    rows = int(request.args.get("rows", "25"))
+    database_url = os.getenv(
+        "DATABASE_URL",
+        "postgresql://bookstore:bookstore@127.0.0.1:5432/bookstore",
+    )
+
+    with psycopg.connect(database_url, connect_timeout=5) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "create table if not exists chaos_books "
+                "(id int primary key, title text not null)"
+            )
+            cursor.executemany(
+                "insert into chaos_books (id, title) values (%s, %s) "
+                "on conflict (id) do nothing",
+                [(i, f"Book {i}") for i in range(1, rows + 1)],
+            )
+            connection.commit()
+
+            with sentry_sdk.start_span(op="db", name="select id from chaos_books"):
+                cursor.execute("select id from chaos_books order by id limit %s", (rows,))
+                ids = [row[0] for row in cursor.fetchall()]
+
+            titles = []
+            for book_id in ids:
+                # The N+1: one round trip per id instead of a single IN query.
+                with sentry_sdk.start_span(
+                    op="db", name="select title from chaos_books where id = %s"
+                ):
+                    cursor.execute(
+                        "select title from chaos_books where id = %s", (book_id,)
+                    )
+                    titles.append(cursor.fetchone()[0])
+
+    return jsonify({"queries": len(ids) + 1, "titles": titles})
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
