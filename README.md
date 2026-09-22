@@ -18,7 +18,7 @@ This repository provides instructions for setting up and running both the API an
     ```bash
     sudo apt-get update
     sudo apt-get install libpq-dev
-    git clone https://github.com/prepare-sh/devops-project-bookstore.git
+    git clone https://github.com/sojay/docker-builds.git
     cd devops-project-bookstore
     cd api
     python3 -m venv venv
