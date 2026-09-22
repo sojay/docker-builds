@@ -51,7 +51,7 @@ This repository provides instructions for setting up and running both the API an
 4. To set up the Docker simulator, follow these steps:
 
     ```bash
-    git clone https://github.com/prepare-sh/docker-simulator-cli
+    git clone https://github.codocker-builds.git
     cd docker-simulator-cli
     go build .
     mv dockermock /usr/local/bin/docker
