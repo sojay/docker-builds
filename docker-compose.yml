@@ -1,0 +1,64 @@
+# Whole stack for Sentry training: React (nginx) -> Flask -> Postgres.
+#
+#   docker compose --env-file ui/.env.local up --build
+#
+# The --env-file is only needed to feed REACT_APP_SENTRY_* into the UI *build*
+# args (CRA inlines them at build time). The api reads its own api/.env at run
+# time, so it does not need them.
+#
+# UI:  http://localhost:3000    API (direct): http://localhost:5000
+# Chaos routes are ON here and OFF by default everywhere else.
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: bookstore
+      POSTGRES_PASSWORD: bookstore
+      POSTGRES_DB: bookstore
+    ports:
+      # 5433 on the host: 5432 is usually taken by a local postgres.
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bookstore -d bookstore"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    # ponytail: no named volume. Throwing the data away on `down` is a feature
+    # for a training stack; add a volume if you ever want it to survive.
+
+  api:
+    build:
+      context: ./api
+      args:
+        SENTRY_RELEASE: ${SENTRY_RELEASE:-dev}
+    env_file:
+      - ./api/.env
+    environment:
+      DATABASE_URL: postgresql://bookstore:bookstore@db:5432/bookstore
+      ENABLE_CHAOS_ROUTES: "true"
+      SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-docker}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-1.0}
+      SENTRY_CAPTURE_404S: "true"
+    ports:
+      - "5000:5000"
+    depends_on:
+      db:
+        condition: service_healthy
+    # /api/chaos/memory is meant to OOM. Cap it so it kills the container and
+    # not the host, and let restart:no leave the corpse for inspection.
+    mem_limit: 512m
+    restart: "no"
+
+  ui:
+    build:
+      context: ./ui
+      args:
+        REACT_APP_SENTRY_DSN: ${REACT_APP_SENTRY_DSN:-}
+        REACT_APP_SENTRY_ENVIRONMENT: ${REACT_APP_SENTRY_ENVIRONMENT:-docker}
+        REACT_APP_SENTRY_RELEASE: ${REACT_APP_SENTRY_RELEASE:-dev}
+        REACT_APP_SENTRY_TRACES_SAMPLE_RATE: ${REACT_APP_SENTRY_TRACES_SAMPLE_RATE:-1.0}
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
